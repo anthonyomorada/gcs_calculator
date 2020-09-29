@@ -7,7 +7,334 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+#Data is set up on two sheets. Therefore, we will load both and merge the data
+library(readxl)
+library(dplyr)
+library(caret)
+library(car)
+library(rcompanion)
+library(lmtest)
+library(InformationValue)
 
+sheet1 <- read_excel("~/THE GUTHRIE CLINIC/General Surgery Research - GCS Trauma Calculator/Master Doc.xlsx",
+                     sheet = "Sheet1",
+    col_types = c("text", "numeric", "text", 
+        "text", "text", "text", "numeric", 
+        "text", "text", "text", "text", "text", 
+        "text", "text", "text", "numeric", 
+        "numeric"))
+sheet2 <- read_excel("~/THE GUTHRIE CLINIC/General Surgery Research - GCS Trauma Calculator/Master Doc.xlsx",
+                     sheet = "Sheet2",
+    col_types = c("text", "numeric", "text", 
+        "text", "text", "text", "numeric", 
+        "text", "text", "text", "text", "text", 
+        "text", "text", "text", "numeric", 
+        "numeric"))
+
+colnames(sheet2) <- colnames(sheet1)
+df <- rbind(sheet1, sheet2)
+
+rm(sheet1, sheet2)
+```
+
+```{r cleaning}
+df$`PEG Tube` <- !is.na(df$`PEG Tube`)
+df$Tracheostomy <- !is.na(df$Tracheostomy)
+df$Alcohol <- as.factor(df$Alcohol)
+df$Stroke <- grepl("Stroke / CVA", df$Stroke)
+df$`Severe Sepsis` <- grepl("Severe sepsis", df$`Severe Sepsis`)
+df$`Pulmonary Embolism` <- grepl("Pulmonary embolism", df$`Pulmonary Embolism`)
+df$Pneumonia <-gsub("0",NA,df$Pneumonia)
+df$Pneumonia<- grepl("Pneumonia", df$Pneumonia, ignore.case = TRUE)
+df$`Myocardial infarction` <- grepl("Myocardial infarction", df$`Myocardial infarction`)
+df$DVT <- grepl("DVT", df$DVT, ignore.case = TRUE)
+df$`Cardiac arrest` <- grepl("Cardiac arrest", df$`Cardiac arrest`)
+df$Gender <- as.factor(df$Gender)
+df <- select(df, -inc_key)
+
+#Outcomes
+df$Expired <- grepl("expired", df$Discharge, ignore.case = TRUE)
+df$Home <- grepl("home", df$Discharge, ignore.case = TRUE)
+```
+
+# Expiration Model
+```{r model expired}
+#Check Class bias
+table(df$Expired)
+
+# Create Training Data
+input_ones <- df[which(df$Expired == TRUE), ]  # all 1's
+input_zeros <- df[which(df$Expired == FALSE), ]  # all 0's
+set.seed(100)  # for repeatability of samples
+input_ones_training_rows <- sample(1:nrow(input_ones), 0.7*nrow(input_ones))  # 1's for training
+input_zeros_training_rows <- sample(1:nrow(input_zeros), 0.7*nrow(input_ones))  # 0's for training. Pick as many 0's as 1's
+training_ones <- input_ones[input_ones_training_rows, ]  
+training_zeros <- input_zeros[input_zeros_training_rows, ]
+trainingData <- rbind(training_ones, training_zeros)  # row bind the 1's and 0's 
+
+# Create Test Data
+test_ones <- input_ones[-input_ones_training_rows, ]
+test_zeros <- input_zeros[-input_zeros_training_rows, ]
+testData <- rbind(test_ones, test_zeros)  # row bind the 1's and 0's 
+#Determining model with step procedure
+### Define full and null models and do step procedure
+
+model.full = glm(Expired ~ Age + Gender + ISSAIS + Alcohol + GCSTOT, 
+                      data=trainingData, 
+                      family=binomial(link="logit"))
+
+step(model.full,
+     scope = list(upper=model.full),
+             direction="both",
+             test="Chisq",
+             data=trainingData)
+
+#Final model
+model.final = glm(Expired ~ Age + Gender + ISSAIS + Alcohol + GCSTOT,
+                  data=trainingData,
+                  family = binomial(link="logit"),
+                  na.action(na.omit)
+                  )
+
+summary(model.final)
+print(exp(cbind(OR = coef(model.final), confint(model.final))))
+
+#Analysis of variance for individual terms
+Anova(model.final, type="II", test="Wald")
+
+#Pseudo-R-squared
+nagelkerke(model.final)
+
+# Overall p-value for model
+### Define null models and compare to final model
+model.null = glm(Expired ~ 1,
+                  data=trainingData,
+                  family = binomial(link="logit")
+                  )
+
+anova(model.final,
+      model.null,
+      test="Chisq")
+
+lrtest(model.final)
+
+#Plot of standardized residuals
+plot(fitted(model.final),
+     rstandard(model.final))
+
+#prediction
+predicted <- predict(model.final, testData, type = "response")
+preds <- predict(model.final, newdata = testData, type = "response", se.fit = TRUE)
+critval <- 1.96 ## approx 95% CI
+upr <- preds$fit + (critval * preds$se.fit)
+lwr <- preds$fit - (critval * preds$se.fit)
+fit <- preds$fit
+
+
+#Simple plot of predicted values
+testData$predy = predict(model.final, testData, type = "response")
+### Plot
+plot(testData$Expired ~ predicted,
+     pch = 16,
+     xlab="Predicted probability of 1 response",
+     ylab="Actual response")
+
+#validate - confusion matrix
+confmatrix <- table(Actual_Value=testData$Expired, Predicted_Value=predicted > 0.5)
+confmatrix
+
+#sensitivity
+sensitivity(testData$Expired, predicted)
+#specificity
+specificity(testData$Expired, predicted)
+
+#accuracy
+(confmatrix[[1,1]] + confmatrix[[2,2]])/sum(confmatrix)
+plotROC(testData$Expired, predicted)
+
+#Check for overdispersion
+#One guideline is that if the ratio of the residual deviance to the residual degrees of freedom exceeds 1.5, then the model is overdispersed.  Overdispersion indicates that the model doesn’t fit the data well:  the explanatory variables may not well describe the dependent variable or the model may not be specified correctly for these data.
+summary(model.final)$deviance / summary(model.final)$df.residual
+saveRDS(model.final, "expired_model.rds")
+```
+
+# Disposition to Home Model
+```{r model home}
+#Check Class bias
+table(df$Home)
+
+# Create Training Data
+input_ones <- df[which(df$Home == TRUE), ]  # all 1's
+input_zeros <- df[which(df$Home == FALSE), ]  # all 0's
+set.seed(100)  # for repeatability of samples
+# Because there were more Trues than False, use 0s to set sample
+input_ones_training_rows <- sample(1:nrow(input_ones), 0.7*nrow(input_zeros))  # 1's for training
+input_zeros_training_rows <- sample(1:nrow(input_zeros), 0.7*nrow(input_zeros))  # 0's for training. Pick as many 0's as 1's
+training_ones <- input_ones[input_ones_training_rows, ]  
+training_zeros <- input_zeros[input_zeros_training_rows, ]
+trainingData <- rbind(training_ones, training_zeros)  # row bind the 1's and 0's 
+
+# Create Test Data
+test_ones <- input_ones[-input_ones_training_rows, ]
+test_zeros <- input_zeros[-input_zeros_training_rows, ]
+testData <- rbind(test_ones, test_zeros)  # row bind the 1's and 0's 
+#Determining model with step procedure
+### Define full and null models and do step procedure
+
+model.full = glm(Home ~ Age + Gender + ISSAIS + Alcohol + GCSTOT, 
+                      data=trainingData, 
+                      family=binomial(link="logit"))
+
+step(model.full,
+     scope = list(upper=model.full),
+             direction="both",
+             test="Chisq",
+             data=trainingData)
+
+#Final model
+model.final = glm(Home ~ Age + Gender + ISSAIS + Alcohol + GCSTOT,
+                  data=trainingData,
+                  family = binomial(link="logit"),
+                  na.action(na.omit)
+                  )
+
+summary(model.final)
+print(exp(cbind(OR = coef(model.final), confint(model.final))))
+
+#Analysis of variance for individual terms
+Anova(model.final, type="II", test="Wald")
+
+#Pseudo-R-squared
+nagelkerke(model.final)
+
+# Overall p-value for model
+### Define null models and compare to final model
+model.null = glm(Home ~ 1,
+                  data=trainingData,
+                  family = binomial(link="logit")
+                  )
+
+anova(model.final,
+      model.null,
+      test="Chisq")
+
+
+
+lrtest(model.final)
+
+#Plot of standardized residuals
+plot(fitted(model.final),
+     rstandard(model.final))
+
+#prediction
+predicted <- predict(model.final, testData, type = "response")
+preds <- predict(model.final, newdata = testData, type = "response", se.fit = TRUE)
+critval <- 1.96 ## approx 95% CI
+upr <- preds$fit + (critval * preds$se.fit)
+lwr <- preds$fit - (critval * preds$se.fit)
+fit <- preds$fit
+
+
+#Simple plot of predicted values
+testData$predy = predict(model.final, testData, type = "response")
+### Plot
+plot(testData$Home ~ predicted,
+     pch = 16,
+     xlab="Predicted probability of 1 response",
+     ylab="Actual response")
+
+#validate - confusion matrix
+confmatrix <- table(Actual_Value=testData$Home, Predicted_Value=predicted > 0.5)
+confmatrix
+
+#sensitivity
+sensitivity(testData$Home, predicted)
+#specificity
+specificity(testData$Home, predicted)
+
+#accuracy
+(confmatrix[[1,1]] + confmatrix[[2,2]])/sum(confmatrix)
+plotROC(testData$Home, predicted)
+
+#Check for overdispersion
+#One guideline is that if the ratio of the residual deviance to the residual degrees of freedom exceeds 1.5, then the model is overdispersed.  Overdispersion indicates that the model doesn’t fit the data well:  the explanatory variables may not well describe the dependent variable or the model may not be specified correctly for these data.
+summary(model.final)$deviance / summary(model.final)$df.residual
+saveRDS(model.final, "Home_model.rds")
 ```
 
 
+# Length of Stay Prediction
+```{r model los}
+data.los =
+   select(df,
+          ISSAIS,
+          Alcohol,
+          Gender,
+          Age,
+          GCSTOT,
+          `LOS Days`)
+
+library(psych)
+corr.test(data.los[,-2:-3],
+          use = "pairwise",
+          method="pearson",
+          adjust="none",     # Can adjust p-values; see ?p.adjust for options
+          alpha=.05)
+
+pairs(data=data.los,
+      ~ ISSAIS + Age + GCSTOT + `LOS Days`)
+
+library(PerformanceAnalytics)
+chart.Correlation(data.los[,-2:-3],
+                   method="pearson",
+                   histogram=TRUE,
+                   pch=16)
+
+#Training and Test Set
+set.seed(100)
+row.number <- sample(1:nrow(data.los), 0.8*nrow(data.los))
+trainingData = data.los[row.number,]
+testData = data.los[-row.number,]
+dim(trainingData)
+dim(testData)
+
+# Multiple regression
+# Stepwise procedure
+model.null = lm(`LOS Days` ~ 1,
+                data=trainingData)
+model.full = lm(`LOS Days` ~ ISSAIS + Alcohol + Gender + Age + GCSTOT,
+                data=trainingData)
+step(model.null,
+     scope = list(upper=model.full),
+             direction="both",
+             data=trainingData)    
+
+#Define final model
+model.final = lm(`LOS Days` ~ ISSAIS + GCSTOT + Alcohol + Age + Gender,
+                 data=trainingData)
+summary(model.final)
+plot(model.final)
+
+#Analysis of variance for individual terms
+Anova(model.final, Type="II")
+
+#Simple plot of predicted values with 1-to-1 line
+testData$predy = predict(model.final,testData, se.fit = TRUE)$fit
+plot(predy ~ `LOS Days`,
+     data=testData,
+     pch = 16,
+     xlab="Actual response value",
+     ylab="Predicted response value")
+abline(0,1, col="blue", lwd=2)
+
+#Checking assumptions of the model
+hist(residuals(model.final),
+     col="darkgray")
+#A histogram of residuals from a linear model.  The distribution of these residuals should be approximately normal.
+plot(fitted(model.final),
+     residuals(model.final)
+     )
+#A plot of residuals vs. predicted values.  The residuals should be unbiased and homoscedastic.  For an illustration of these properties, see this diagram by Steve Jost at DePaul University: condor.depaul.edu/sjost/it223/documents/resid-plots.gif.
+saveRDS(model.final, "los_model.rds")
+
+```
