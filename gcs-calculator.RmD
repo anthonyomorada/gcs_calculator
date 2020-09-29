@@ -259,7 +259,7 @@ plotROC(testData$Home, predicted)
 #Check for overdispersion
 #One guideline is that if the ratio of the residual deviance to the residual degrees of freedom exceeds 1.5, then the model is overdispersed.  Overdispersion indicates that the model doesn’t fit the data well:  the explanatory variables may not well describe the dependent variable or the model may not be specified correctly for these data.
 summary(model.final)$deviance / summary(model.final)$df.residual
-saveRDS(model.final, "Home_model.rds")
+saveRDS(model.final, "home_model.rds")
 ```
 
 

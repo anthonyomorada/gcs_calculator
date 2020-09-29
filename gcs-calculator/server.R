@@ -11,7 +11,6 @@ setwd("~/Documents/GitHub/gcs-calculator")
 library(caret)
 library(shiny)
 library(ggplot2)
-library(rdrop2)
 
 ##### SERVER #####
 
@@ -30,27 +29,9 @@ shinyServer(function(input, output) {
           })
     
     output$result <- renderTable({inputdata()})
-
-    #dropbox
-    outputDir <- "/research documents/shinyapps.io files/"
-    loadData <- function(file) {
-         # Read all the files into a list
-         filesInfo <- drop_dir(outputDir)
-         filePaths <- filesInfo$path
-         model <- lapply(filePaths, drop_read_csv, stringsAsFactors = FALSE)
-    }
-    
-    
-    
-    
-    
-    
-    
-    
-    
     
     #Mortality Model
-    expired_model <- readRDS("./expired_model.rds")
+    expired_model <- readRDS("expired_model.rds")
     output$mortality <- renderPrint({
          preds <- predict(expired_model, newdata = inputdata(), type = "response", se.fit = TRUE)
          critval <- 1.96 ## approx 95% CI
@@ -61,7 +42,7 @@ shinyServer(function(input, output) {
     })
    
     #Home Chance
-    home_model <- readRDS("./Home_model.rds")
+    home_model <- readRDS("home_model.rds")
     output$home <- renderPrint({
          preds <- predict(home_model, newdata = inputdata(), type = "response", se.fit = TRUE)
          critval <- 1.96 ## approx 95% CI
@@ -72,7 +53,7 @@ shinyServer(function(input, output) {
     })
     
     #LOS Model
-    los_model <- readRDS("./los_model.rds")
+    los_model <- readRDS("los_model.rds")
     output$los <- renderPrint({
          preds <- predict(los_model, newdata = inputdata(), se.fit = TRUE)
          critval <- 1.96 ## approx 95% CI
@@ -83,5 +64,4 @@ shinyServer(function(input, output) {
     })
 })
     
-
 

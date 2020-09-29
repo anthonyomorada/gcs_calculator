@@ -18,7 +18,7 @@ fluidPage(
         sidebarPanel(
              numericInput('Age', 'Age', 50),            
              selectInput("Gender", "Gender?", choices = c("Female", "Male", "Not Known/Not Recorded BIU 2")),
-             selectInput("Alcohol", "Alcohol?", choices = c("No (not tested)", "No (confirmed by test)", "Not Applicable BIU 1", "Not Known/Not Recorded BIU 2", "Yes (confirmed by test [beyond legal limit])", "Yes (confirmed by test [trace levels]) ")),
+             selectInput("Alcohol", "Alcohol?", choices = c("No (not tested)", "No (confirmed by test)", "Not Applicable BIU 1", "Not Known/Not Recorded BIU 2", "Yes (confirmed by test [beyond legal limit])", "Yes (confirmed by test [trace levels])")),
              numericInput('ISSAIS', 'ISSAIS', 0),
              numericInput('GCSTOT', 'GCSTOT', 15),
             hr(),
