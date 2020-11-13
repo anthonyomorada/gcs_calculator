@@ -62,6 +62,28 @@ shinyServer(function(input, output) {
          fit <- round(preds$fit, digits = 2)
          paste("Predicted length of stay is ", as.numeric(fit), " days. Confidence Interval [" , lwr, ", ", upr, "]", sep = "")
     })
+    
+    #Other Model
+    other_model <- readRDS("other_model.rds")
+    output$other <- renderPrint({
+         preds <- predict(other_model, newdata = inputdata(), type = "response", se.fit = TRUE)
+         critval <- 1.96 ## approx 95% CI
+         upr <- round((preds$fit + (critval * preds$se.fit)) *100 , digits = 2)
+         lwr <- round((preds$fit - (critval * preds$se.fit)) *100 , digits = 2)
+         fit <- round(preds$fit*100, digits = 2)
+         paste("Chance of discharged to other is ", as.numeric(fit), "%. Confidence Interval [" , lwr, "%, ", upr, "%]", sep = "")
+    })
+    
+    #Tracheostomy Model
+    tracheostomy_model <- readRDS("tracheostomy_model.rds")
+    output$tracheostomy <- renderPrint({
+         preds <- predict(tracheostomy_model, newdata = inputdata(), type = "response", se.fit = TRUE)
+         critval <- 1.96 ## approx 95% CI
+         upr <- round((preds$fit + (critval * preds$se.fit)) *100 , digits = 2)
+         lwr <- round((preds$fit - (critval * preds$se.fit)) *100 , digits = 2)
+         fit <- round(preds$fit*100, digits = 2)
+         paste("Chance of discharged to other is ", as.numeric(fit), "%. Confidence Interval [" , lwr, "%, ", upr, "%]", sep = "")
+    })
 })
     
 

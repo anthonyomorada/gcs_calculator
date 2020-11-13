@@ -1,12 +1,25 @@
 ---
-title: "gcs-calculator"
+title: "Outcome Calculator After Head Traumas"
 author: "Anthony Morada"
 date: "9/18/2020"
-output: html_document
+output:
+  word_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+  html_document:
+    toc: yes
+    df_print: paged
+editor_options:
+  chunk_output_type: console
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+# Setting up and Cleaning Data  
+```{r setup}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
 #Data is set up on two sheets. Therefore, we will load both and merge the data
 library(readxl)
 library(dplyr)
@@ -16,14 +29,14 @@ library(rcompanion)
 library(lmtest)
 library(InformationValue)
 
-sheet1 <- read_excel("~/THE GUTHRIE CLINIC/General Surgery Research - GCS Trauma Calculator/Master Doc.xlsx",
+sheet1 <- read_excel("~/THE GUTHRIE CLINIC/Foundation Research Projects - GCS Trauma Calculator/Master Doc.xlsx",
                      sheet = "Sheet1",
     col_types = c("text", "numeric", "text", 
         "text", "text", "text", "numeric", 
         "text", "text", "text", "text", "text", 
         "text", "text", "text", "numeric", 
         "numeric"))
-sheet2 <- read_excel("~/THE GUTHRIE CLINIC/General Surgery Research - GCS Trauma Calculator/Master Doc.xlsx",
+sheet2 <- read_excel("~/THE GUTHRIE CLINIC/Foundation Research Projects - GCS Trauma Calculator/Master Doc.xlsx",
                      sheet = "Sheet2",
     col_types = c("text", "numeric", "text", 
         "text", "text", "text", "numeric", 
@@ -55,9 +68,10 @@ df <- select(df, -inc_key)
 #Outcomes
 df$Expired <- grepl("expired", df$Discharge, ignore.case = TRUE)
 df$Home <- grepl("home", df$Discharge, ignore.case = TRUE)
+df$Other <- grepl("psychiatric hospital|short-term general hospital|Intermediate Care Facility|another type of institution|rehabilitation or long term|hospice care|inpatient rehab|Long Term Care Hospital|Skilled Nursing Facility", df$Discharge)
 ```
 
-# Expiration Model
+# Expiration Model  
 ```{r model expired}
 #Check Class bias
 table(df$Expired)
@@ -145,6 +159,7 @@ confmatrix
 
 #sensitivity
 sensitivity(testData$Expired, predicted)
+
 #specificity
 specificity(testData$Expired, predicted)
 
@@ -158,7 +173,7 @@ summary(model.final)$deviance / summary(model.final)$df.residual
 saveRDS(model.final, "expired_model.rds")
 ```
 
-# Disposition to Home Model
+# Disposition to Home Model  
 ```{r model home}
 #Check Class bias
 table(df$Home)
@@ -178,9 +193,10 @@ trainingData <- rbind(training_ones, training_zeros)  # row bind the 1's and 0's
 test_ones <- input_ones[-input_ones_training_rows, ]
 test_zeros <- input_zeros[-input_zeros_training_rows, ]
 testData <- rbind(test_ones, test_zeros)  # row bind the 1's and 0's 
+
+
 #Determining model with step procedure
 ### Define full and null models and do step procedure
-
 model.full = glm(Home ~ Age + Gender + ISSAIS + Alcohol + GCSTOT, 
                       data=trainingData, 
                       family=binomial(link="logit"))
@@ -217,8 +233,6 @@ model.null = glm(Home ~ 1,
 anova(model.final,
       model.null,
       test="Chisq")
-
-
 
 lrtest(model.final)
 
@@ -262,8 +276,216 @@ summary(model.final)$deviance / summary(model.final)$df.residual
 saveRDS(model.final, "home_model.rds")
 ```
 
+# Disposition to Other  
 
-# Length of Stay Prediction
+Definition to "Disposition to Other" - Patients with a discharge status to any of the following:  
+```{r}
+print(unique(df[grepl("psychiatric hospital|short-term general hospital|Intermediate Care Facility|another type of institution|rehabilitation or long term|hospice care|inpatient rehab|Long Term Care Hospital|Skilled Nursing Facility", df$Discharge),]$Discharge))
+```
+
+```{r model other}
+#Check Class bias
+table(df$Other)
+
+# Create Training Data
+input_ones <- df[which(df$Other == TRUE), ]  # all 1's
+input_zeros <- df[which(df$Other == FALSE), ]  # all 0's
+set.seed(100)  # for repeatability of samples
+# Because there are more Falses than Trues, use 1s to set sample
+input_ones_training_rows <- sample(1:nrow(input_ones), 0.7*nrow(input_ones))  # 1's for training
+input_zeros_training_rows <- sample(1:nrow(input_zeros), 0.7*nrow(input_ones))  # 0's for training.
+training_ones <- input_ones[input_ones_training_rows, ]  
+training_zeros <- input_zeros[input_zeros_training_rows, ]
+trainingData <- rbind(training_ones, training_zeros)  # row bind the 1's and 0's 
+
+# Create Test Data
+test_ones <- input_ones[-input_ones_training_rows, ]
+test_zeros <- input_zeros[-input_zeros_training_rows, ]
+testData <- rbind(test_ones, test_zeros)  # row bind the 1's and 0's 
+
+#Determining model with step procedure
+### Define full and null models and do step procedure
+model.full = glm(Other ~ Age + Gender + ISSAIS + Alcohol + GCSTOT, 
+                      data=trainingData, 
+                      family=binomial(link="logit"))
+
+step(model.full,
+     scope = list(upper=model.full),
+             direction="both",
+             test="Chisq",
+             data=trainingData)
+
+
+#Final model
+model.final = glm(Other ~ Age + Gender + ISSAIS + Alcohol + GCSTOT,
+                  data=trainingData,
+                  family = binomial(link="logit"),
+                  na.action(na.omit)
+                  )
+
+summary(model.final)
+print(exp(cbind(OR = coef(model.final), confint(model.final))))
+
+#Analysis of variance for individual terms
+Anova(model.final, type="II", test="Wald")
+
+#Pseudo-R-squared
+nagelkerke(model.final)
+
+# Overall p-value for model
+### Define null models and compare to final model
+model.null = glm(Other ~ 1,
+                  data=trainingData,
+                  family = binomial(link="logit")
+                  )
+
+anova(model.final,
+      model.null,
+      test="Chisq")
+
+lrtest(model.final)
+
+#Plot of standardized residuals
+plot(fitted(model.final),
+     rstandard(model.final))
+
+#prediction
+predicted <- predict(model.final, testData, type = "response")
+preds <- predict(model.final, newdata = testData, type = "response", se.fit = TRUE)
+critval <- 1.96 ## approx 95% CI
+upr <- preds$fit + (critval * preds$se.fit)
+lwr <- preds$fit - (critval * preds$se.fit)
+fit <- preds$fit
+
+#Simple plot of predicted values
+testData$predy = predict(model.final, testData, type = "response")
+### Plot
+plot(testData$Other ~ predicted,
+     pch = 16,
+     xlab="Predicted probability of 1 response",
+     ylab="Actual response")
+
+#validate - confusion matrix
+confmatrix <- table(Actual_Value=testData$Other, Predicted_Value=predicted > 0.5)
+confmatrix
+
+#sensitivity
+sensitivity(testData$Other, predicted)
+#specificity
+specificity(testData$Other, predicted)
+
+#accuracy
+(confmatrix[[1,1]] + confmatrix[[2,2]])/sum(confmatrix)
+plotROC(testData$Other, predicted)
+
+#Check for overdispersion
+#One guideline is that if the ratio of the residual deviance to the residual degrees of freedom exceeds 1.5, then the model is overdispersed.  Overdispersion indicates that the model doesn’t fit the data well:  the explanatory variables may not well describe the dependent variable or the model may not be specified correctly for these data.
+summary(model.final)$deviance / summary(model.final)$df.residual
+saveRDS(model.final, "other_model.rds")
+
+```
+
+# Tracheostomy
+```{r tracheostomy model}
+#Check Class bias
+table(df$Tracheostomy)
+
+# Create Training Data
+input_ones <- df[which(df$Tracheostomy == TRUE), ]  # all 1's
+input_zeros <- df[which(df$Tracheostomy == FALSE), ]  # all 0's
+set.seed(100)  # for repeatability of samples
+# Because there are more Falses than Trues, use 1s to set sample
+input_ones_training_rows <- sample(1:nrow(input_ones), 0.7*nrow(input_ones))  # 1's for training
+input_zeros_training_rows <- sample(1:nrow(input_zeros), 0.7*nrow(input_ones))  # 0's for training.
+training_ones <- input_ones[input_ones_training_rows, ]  
+training_zeros <- input_zeros[input_zeros_training_rows, ]
+trainingData <- rbind(training_ones, training_zeros)  # row bind the 1's and 0's 
+
+# Create Test Data
+test_ones <- input_ones[-input_ones_training_rows, ]
+test_zeros <- input_zeros[-input_zeros_training_rows, ]
+testData <- rbind(test_ones, test_zeros)  # row bind the 1's and 0's 
+
+#Determining model with step procedure
+### Define full and null models and do step procedure
+model.full = glm(Tracheostomy ~ Age + Gender + ISSAIS + Alcohol + GCSTOT, 
+                      data=trainingData, 
+                      family=binomial(link="logit"))
+
+step(model.full,
+     scope = list(upper=model.full),
+             direction="both",
+             test="Chisq",
+             data=trainingData)
+
+#Final model
+model.final = glm(Tracheostomy ~ Age + Gender + ISSAIS + Alcohol + GCSTOT,
+                  data=trainingData,
+                  family = binomial(link="logit"),
+                  na.action(na.omit)
+                  )
+summary(model.final)
+print(exp(cbind(OR = coef(model.final), confint(model.final))))
+
+#Analysis of variance for individual terms
+Anova(model.final, type="II", test="Wald")
+
+#Pseudo-R-squared
+nagelkerke(model.final)
+
+# Overall p-value for model
+### Define null models and compare to final model
+model.null = glm(Tracheostomy ~ 1,
+                  data=trainingData,
+                  family = binomial(link="logit")
+                  )
+
+anova(model.final,
+      model.null,
+      test="Chisq")
+
+lrtest(model.final)
+
+#Plot of standardized residuals
+plot(fitted(model.final),
+     rstandard(model.final))
+
+#prediction
+predicted <- predict(model.final, testData, type = "response")
+preds <- predict(model.final, newdata = testData, type = "response", se.fit = TRUE)
+critval <- 1.96 ## approx 95% CI
+upr <- preds$fit + (critval * preds$se.fit)
+lwr <- preds$fit - (critval * preds$se.fit)
+fit <- preds$fit
+
+#Simple plot of predicted values
+testData$predy = predict(model.final, testData, type = "response")
+### Plot
+plot(testData$Tracheostomy ~ predicted,
+     pch = 16,
+     xlab="Predicted probability of 1 response",
+     ylab="Actual response")
+
+#validate - confusion matrix
+confmatrix <- table(Actual_Value=testData$Tracheostomy, Predicted_Value=predicted > 0.5)
+confmatrix
+
+#sensitivity
+sensitivity(testData$Tracheostomy, predicted)
+#specificity
+specificity(testData$Tracheostomy, predicted)
+
+#accuracy
+(confmatrix[[1,1]] + confmatrix[[2,2]])/sum(confmatrix)
+plotROC(testData$Tracheostomy, predicted)
+
+#Check for overdispersion
+#One guideline is that if the ratio of the residual deviance to the residual degrees of freedom exceeds 1.5, then the model is overdispersed.  Overdispersion indicates that the model doesn’t fit the data well:  the explanatory variables may not well describe the dependent variable or the model may not be specified correctly for these data.
+summary(model.final)$deviance / summary(model.final)$df.residual
+saveRDS(model.final, "tracheostomy_model.rds")
+```
+
+# Length of Stay Prediction  
 ```{r model los}
 data.los =
    select(df,

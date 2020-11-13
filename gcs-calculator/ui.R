@@ -39,6 +39,11 @@ fluidPage(
             textOutput("home"),
             h1('Predicted length of stay'),
             textOutput("los"),
+            h1('Discharge to Other'),
+            textOutput("other"),
+            h1('Chance of Tracheostomy'),
+            textOutput("tracheostomy")
+            
             )
         )
     )  
