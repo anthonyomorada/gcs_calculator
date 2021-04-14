@@ -90,6 +90,7 @@ trainingData <- rbind(training_ones, training_zeros)  # row bind the 1's and 0's
 test_ones <- input_ones[-input_ones_training_rows, ]
 test_zeros <- input_zeros[-input_zeros_training_rows, ]
 testData <- rbind(test_ones, test_zeros)  # row bind the 1's and 0's 
+
 #Determining model with step procedure
 ### Define full and null models and do step procedure
 
