@@ -7,7 +7,7 @@
 #    http://shiny.rstudio.com/
 #
 
-setwd("~/Documents/GitHub/gcs-calculator")
+setwd("~/Documents/GitHub/gcs_calculator")
 library(caret)
 library(shiny)
 library(ggplot2)
